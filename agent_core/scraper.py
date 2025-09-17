@@ -130,6 +130,17 @@ class RawOffer:
     url: str
     metadata: Dict[str, Any]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise the raw offer to a JSON-compatible structure."""
+
+        return {
+            "provider": self.provider,
+            "title": self.title,
+            "price": self.price,
+            "url": self.url,
+            "metadata": dict(self.metadata),
+        }
+
 
 async def _dismiss_common_banners(page: Page) -> None:
     """Attempt to dismiss cookie/consent banners that block results."""
@@ -665,15 +676,15 @@ def _fallback_mock_offers(config: AgentConfig, reason: str | None = None) -> Lis
     LOGGER.debug("Falling back to mock offers: %s", reason or "no details")
 
     mocked_prices = [749.0, 899.0, 1020.0]
-    providers = ["HolidayCheck", "TUI", "Booking.com"]
     mocked_star_ratings = [4.0, 4.5, 3.5]
     mocked_recommendations = [88.0, 92.0, 85.0]
     offers: List[RawOffer] = []
     for idx, destination in enumerate(config.destinations or ["Unbekannt"]):
         price = mocked_prices[idx % len(mocked_prices)]
+        mock_reason = reason or "mock"
         offers.append(
             RawOffer(
-                provider=providers[idx % len(providers)],
+                provider="Mock",
                 title=f"Pauschalreise nach {destination}",
                 price=price,
                 url=f"https://example.com/offers/{destination.lower().replace(' ', '-')}",
@@ -681,7 +692,8 @@ def _fallback_mock_offers(config: AgentConfig, reason: str | None = None) -> Lis
                     "nights": 7,
                     "board": "Halbpension",
                     "origin": config.origin or "Beliebig",
-                    "reason": reason or "mock",
+                    "reason": mock_reason,
+                    "mock_reason": mock_reason,
                     "star_rating": mocked_star_ratings[idx % len(mocked_star_ratings)],
                     "recommendation_score": mocked_recommendations[idx % len(mocked_recommendations)],
                 },

@@ -7,13 +7,8 @@ from typing import Dict, List, Optional
 import pytest
 
 from agent_core.config import AgentConfig
-from agent_core.scraper import (
-    RawOffer,
-    _search_abindenurlaub,
-    _search_holidaycheck,
-    _search_tui,
-    _search_weg,
-)
+from agent_core.models import RawOffer
+from agent_core.sources.portal_playwright import PORTAL_HANDLERS
 
 
 class _StubLocator:
@@ -165,7 +160,7 @@ async def test_search_holidaycheck_returns_raw_offers() -> None:
     )
     config = AgentConfig(destinations=["Mallorca"], travellers=2, budget=1200.0)
 
-    offers = await _search_holidaycheck(page, config, "Mallorca")
+    offers = await PORTAL_HANDLERS["holidaycheck.de"](page, config, "Mallorca")
 
     assert offers, "expected at least one RawOffer"
 
@@ -202,7 +197,7 @@ async def test_search_tui_returns_raw_offers() -> None:
     )
     config = AgentConfig(destinations=["Kreta"], travellers=3, budget=2000.0)
 
-    offers = await _search_tui(page, config, "Kreta")
+    offers = await PORTAL_HANDLERS["tui.com"](page, config, "Kreta")
 
     assert offers, "expected at least one RawOffer"
 
@@ -238,7 +233,7 @@ async def test_search_abindenurlaub_returns_raw_offers() -> None:
     )
     config = AgentConfig(destinations=["Barcelona"], travellers=2, budget=1800.0)
 
-    offers = await _search_abindenurlaub(page, config, "Barcelona")
+    offers = await PORTAL_HANDLERS["ab-in-den-urlaub.de"](page, config, "Barcelona")
 
     assert offers, "expected at least one RawOffer"
 
@@ -274,7 +269,7 @@ async def test_search_weg_returns_raw_offers() -> None:
     )
     config = AgentConfig(destinations=["London"], travellers=1, budget=900.0)
 
-    offers = await _search_weg(page, config, "London")
+    offers = await PORTAL_HANDLERS["weg.de"](page, config, "London")
 
     assert offers, "expected at least one RawOffer"
 

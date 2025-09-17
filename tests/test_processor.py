@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agent_core.config import AgentConfig
 from agent_core.processor import prepare_offers, summarise_offers
 from agent_core.reporter import build_report
-from agent_core.scraper import RawOffer
+from agent_core.models import RawOffer
 
 
 class ProcessorPipelineTests(unittest.TestCase):

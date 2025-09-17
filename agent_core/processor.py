@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Optional
 import pandas as pd
 
 from .config import AgentConfig
-from .scraper import RawOffer
+from .models import RawOffer
 
 
 @dataclass

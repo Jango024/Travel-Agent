@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from .config import AgentConfig
+from .models import RawOffer
 from .processor import ProcessedOffer, prepare_offers, summarise_offers
 from .reporter import build_report
-from .scraper import RawOffer, scrape_sources
+from .scraper import scrape_sources
 
 
 @dataclass

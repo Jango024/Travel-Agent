@@ -76,7 +76,9 @@ def prepare_offers(offers: Iterable[RawOffer], config: AgentConfig) -> List[Proc
     df = offers_to_dataframe(offers, config)
     df = deduplicate_offers(df)
     df = filter_by_budget(df, config)
-
+    if not df.empty:
+        df = df.dropna(subset=["price"])
+        
     processed: List[ProcessedOffer] = []
     if df.empty:
         return processed
@@ -98,12 +100,21 @@ def prepare_offers(offers: Iterable[RawOffer], config: AgentConfig) -> List[Proc
 def summarise_offers(offers: List[ProcessedOffer]) -> Dict[str, float]:
     """Return simple statistics across all processed offers."""
 
-    if not offers:
-        return {"count": 0, "average_price": float("nan"), "min_price": float("nan")}
+    valid_prices = [
+        offer.price
+        for offer in offers
+        if offer.price is not None and not math.isnan(float(offer.price))
+    ]
+    
+        if not valid_prices:
+        return {"count": 0, "average_price": 0.0, "min_price": 0.0}
 
-    prices = [offer.price for offer in offers]
+    count = len(valid_prices)
+    total = sum(valid_prices)
+    minimum = min(valid_prices)
+
     return {
-        "count": len(offers),
-        "average_price": float(sum(prices) / len(prices)),
-        "min_price": float(min(prices)),
+        "count": count,
+        "average_price": float(total / count),
+        "min_price": float(minimum),
     }

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 import re
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 
 _DATE_FORMATS = ["%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d.%m.%y"]
@@ -22,6 +22,9 @@ class AgentConfig:
     origin: Optional[str] = None
     accommodation_types: List[str] = field(default_factory=list)
     board_types: List[str] = field(default_factory=list)
+    preferred_sources: List[str] = field(default_factory=list)
+    min_star_rating: Optional[float] = None
+    min_recommendation_score: Optional[float] = None
     notes: str = ""
     raw_request: Dict[str, Any] = field(default_factory=dict)
 
@@ -30,13 +33,16 @@ class AgentConfig:
 
         return {
             "destinations": self.destinations,
-          "departure_date": self.departure_date.isoformat() if self.departure_date else None,
+            "departure_date": self.departure_date.isoformat() if self.departure_date else None,
             "return_date": self.return_date.isoformat() if self.return_date else None,
             "travellers": self.travellers,
             "budget": self.budget,
             "origin": self.origin,
             "accommodation_types": self.accommodation_types,
             "board_types": self.board_types,
+            "preferred_sources": self.preferred_sources,
+            "min_star_rating": self.min_star_rating,
+            "min_recommendation_score": self.min_recommendation_score,
             "notes": self.notes,
         }
 
@@ -73,6 +79,21 @@ def _ensure_list(value: str | Iterable[str] | None) -> List[str]:
         return [item.strip() for item in value.split(",") if item.strip()]
     return [item for item in value if item]
 
+def _coerce_scalar(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            coerced = _coerce_scalar(item)
+            if coerced is not None:
+                return coerced
+        return None
+    coerced = str(value).strip()
+    return coerced or None
+
 
 def create_config_from_form(form_data: Mapping[str, Any]) -> AgentConfig:
     """Create a configuration object from an HTML form payload."""
@@ -84,6 +105,13 @@ def create_config_from_form(form_data: Mapping[str, Any]) -> AgentConfig:
 
     accommodation_types = _ensure_list(form_data.get("accommodation"))
     board_types = _ensure_list(form_data.get("board"))
+    preferred_sources = _ensure_list(form_data.get("preferred_sources"))
+
+    min_star_rating = _parse_float(_coerce_scalar(form_data.get("min_star_rating")))
+    recommendation_value = _coerce_scalar(form_data.get("min_recommendation_score"))
+    if recommendation_value is not None:
+        recommendation_value = recommendation_value.replace("%", "")
+    min_recommendation_score = _parse_float(recommendation_value)
 
     config = AgentConfig(
         destinations=destinations,
@@ -94,6 +122,9 @@ def create_config_from_form(form_data: Mapping[str, Any]) -> AgentConfig:
         origin=(form_data.get("origin") or None),
         accommodation_types=accommodation_types,
         board_types=board_types,
+        preferred_sources=preferred_sources,
+        min_star_rating=min_star_rating,
+        min_recommendation_score=min_recommendation_score,
         notes=str(form_data.get("notes") or ""),
         raw_request=dict(form_data),
     )
@@ -151,7 +182,9 @@ def create_config_from_text(message: str) -> AgentConfig:
     travellers = 2
     departure_date: Optional[date] = None
     return_date: Optional[date] = None
-
+    min_star_rating: Optional[float] = None
+    min_recommendation_score: Optional[float] = None
+    
     message_lower = message.lower()
 
     for match in _DATE_RANGE_PATTERN.finditer(message_lower):
@@ -173,6 +206,17 @@ def create_config_from_text(message: str) -> AgentConfig:
     if traveller_match:
         travellers = int(traveller_match.group("count"))
 
+    star_match = re.search(r"(\d(?:[.,]\d)?)\s*(?:sterne|stars)", message_lower)
+    if star_match:
+        min_star_rating = _parse_float(star_match.group(1))
+
+    recommendation_match = re.search(
+        r"(\d{1,3})\s?%[^%]*(?:weiterempfehlung|empfehlung|recommendation|bewertungen)",
+        message_lower,
+    )
+    if recommendation_match:
+        min_recommendation_score = _parse_float(recommendation_match.group(1))
+    
     # very naive destination extraction: look for words after "nach"/"to"
     destination_keywords = re.findall(r"(?:nach|to|richtung)\s+([a-zäöüß\-\s]{3,})", message_lower)
     for keyword in destination_keywords:
@@ -194,6 +238,8 @@ def create_config_from_text(message: str) -> AgentConfig:
         return_date=return_date,
         travellers=travellers,
         budget=budget,
+        min_star_rating=min_star_rating,
+        min_recommendation_score=min_recommendation_score,
         notes=message,
         raw_request={"message": message},
     )

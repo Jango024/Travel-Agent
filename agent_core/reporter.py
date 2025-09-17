@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
+import math
 from typing import Iterable, List
 
 from .config import AgentConfig
@@ -36,11 +37,24 @@ def generate_offer_table(offers: Iterable[ProcessedOffer]) -> str:
         rows.append("| Keine Treffer |" + " |" * (len(headers) - 1))
         return "\n".join(rows)
 
+    placeholder = "–"
+
     for offer in offer_list:
+        price_value = offer.price
+        if price_value is None:
+            price_column = placeholder
+        else:
+            try:
+                numeric_price = float(price_value)
+            except (TypeError, ValueError):
+                price_column = placeholder
+            else:
+                price_column = placeholder if math.isnan(numeric_price) else f"{numeric_price:.0f} €"
+
         columns = [
             offer.provider,
             offer.destination,
-            f"{offer.price:.0f} €",
+            price_column,
             str(offer.nights),
             offer.board,
         ]
@@ -85,7 +99,10 @@ def build_report(config: AgentConfig, offers: List[ProcessedOffer]) -> str:
     lines.append("")
     lines.append("Zusammenfassung:")
     if summary["count"] == 0:
-        lines.append("- Keine Angebote gefunden")
+        if offers:
+            lines.append("- Keine Angebote mit Preisangabe gefunden")
+        else:
+            lines.append("- Keine Angebote gefunden")
     else:
         lines.append(f"- {summary['count']} Angebote gefunden")
         lines.append(f"- Durchschnittlicher Preis: {summary['average_price']:.0f} €")

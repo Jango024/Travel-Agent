@@ -17,7 +17,7 @@ class ProcessedOffer:
 
     provider: str
     destination: str
-    price: float
+    price: Optional[float]
     url: str
     nights: int
     board: str
@@ -65,7 +65,10 @@ def filter_by_budget(df: pd.DataFrame, config: AgentConfig) -> pd.DataFrame:
 
     if config.budget is None or df.empty:
         return df
-    return df[df["price"].fillna(float("inf")) <= config.budget]
+    budget = float(config.budget)
+    price_column = df["price"]
+    within_budget = price_column.le(budget)
+    return df[within_budget | price_column.isna()]
 
 
 def filter_by_star_rating(df: pd.DataFrame, config: AgentConfig) -> pd.DataFrame:
@@ -100,19 +103,29 @@ def prepare_offers(offers: Iterable[RawOffer], config: AgentConfig) -> List[Proc
     df = filter_by_budget(df, config)
     df = filter_by_star_rating(df, config)
     df = filter_by_recommendation(df, config)
-    if not df.empty:
-        df = df.dropna(subset=["price"])
         
     processed: List[ProcessedOffer] = []
     if df.empty:
         return processed
 
     for row in df.to_dict("records"):
+        raw_price = row.get("price")
+        price_value: Optional[float]
+        if raw_price is None:
+            price_value = None
+        else:
+            try:
+                numeric_price = float(raw_price)
+            except (TypeError, ValueError):
+                price_value = None
+            else:
+                price_value = None if math.isnan(numeric_price) else numeric_price
+
         processed.append(
             ProcessedOffer(
                 provider=str(row["provider"]),
                 destination=str(row["destination"]),
-                price=float(row["price"]),
+                price=price_value,
                 url=str(row["url"]),
                 nights=int(row.get("nights", 0) or 0),
                 board=str(row.get("board", "")),
@@ -135,11 +148,18 @@ def prepare_offers(offers: Iterable[RawOffer], config: AgentConfig) -> List[Proc
 def summarise_offers(offers: List[ProcessedOffer]) -> Dict[str, float]:
     """Return simple statistics across all processed offers."""
 
-    valid_prices = [
-        offer.price
-        for offer in offers
-        if offer.price is not None and not math.isnan(float(offer.price))
-    ]
+    valid_prices: List[float] = []
+    for offer in offers:
+        price = offer.price
+        if price is None:
+            continue
+        try:
+            numeric_price = float(price)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(numeric_price):
+            continue
+        valid_prices.append(numeric_price)
     
     if not valid_prices:
         return {"count": 0, "average_price": 0.0, "min_price": 0.0}

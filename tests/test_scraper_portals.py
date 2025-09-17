@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 
+import agent_core.scraper as scraper_module
 from agent_core.config import AgentConfig
 from agent_core.scraper import RawOffer, _search_holidaycheck
 
@@ -112,6 +113,51 @@ class _StubPage:
         return []
 
 
+class _StubPlaywrightContext:
+    def __init__(self, page: _StubPage) -> None:
+        self._page = page
+
+    async def new_page(self) -> _StubPage:
+        return self._page
+
+
+class _StubPlaywrightBrowser:
+    def __init__(self, page: _StubPage) -> None:
+        self._page = page
+
+    async def new_context(self, locale: str = "") -> _StubPlaywrightContext:
+        return _StubPlaywrightContext(self._page)
+
+    async def close(self) -> None:  # pragma: no cover - trivial
+        return None
+
+
+class _StubFirefoxLauncher:
+    def __init__(self, page: _StubPage) -> None:
+        self._page = page
+
+    async def launch(self, headless: bool = True) -> _StubPlaywrightBrowser:
+        return _StubPlaywrightBrowser(self._page)
+
+
+class _StubPlaywrightRuntime:
+    def __init__(self, page: _StubPage) -> None:
+        self.firefox = _StubFirefoxLauncher(page)
+
+
+class _StubAsyncPlaywright:
+    def __init__(self, page: _StubPage) -> None:
+        self._runtime = _StubPlaywrightRuntime(page)
+
+    async def __aenter__(self) -> _StubPlaywrightRuntime:
+        return self._runtime
+
+    async def __aexit__(
+        self, exc_type, exc: BaseException | None, tb: Any | None
+    ) -> bool:  # pragma: no cover - trivial
+        return False
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     """Restrict anyio tests to the asyncio backend for deterministic behaviour."""
@@ -155,3 +201,102 @@ async def test_search_holidaycheck_returns_raw_offers() -> None:
     # The stubbed inputs should have been filled with search parameters.
     assert page.filled["input[name='destination']"] == "Mallorca"
     assert page.selected.get("select[name='travellers']") == "2"
+
+
+@pytest.mark.anyio
+async def test_scrape_with_playwright_uses_alias_for_holidaycheck(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Preferred sources like 'HolidayCheck' should resolve to the portal handler."""
+
+    page = _StubPage()
+    monkeypatch.setattr(
+        scraper_module, "async_playwright", lambda: _StubAsyncPlaywright(page)
+    )
+
+    calls: List[tuple[_StubPage, str]] = []
+
+    async def fake_handler(
+        page_obj: _StubPage, config: AgentConfig, destination: str
+    ) -> List[RawOffer]:
+        calls.append((page_obj, destination))
+        return [
+            RawOffer(
+                provider="holidaycheck.de",
+                title=f"{destination} Special",
+                price=None,
+                url="https://www.holidaycheck.de/angebote/1",
+                metadata={},
+            )
+        ]
+
+    monkeypatch.setitem(
+        scraper_module._PORTAL_SEARCH_HANDLERS, "holidaycheck.de", fake_handler
+    )
+
+    async def fake_duckduckgo(
+        page_obj: _StubPage,
+        destination: str,
+        max_results: int = 5,
+        site: str | None = None,
+    ) -> List[RawOffer]:
+        return []
+
+    monkeypatch.setattr(
+        scraper_module, "_extract_duckduckgo_results", fake_duckduckgo
+    )
+
+    config = AgentConfig(destinations=["Mallorca"], preferred_sources=["HolidayCheck"])
+
+    offers = await scraper_module._scrape_with_playwright(config)
+
+    assert calls and calls[0][0] is page
+    assert calls[0][1] == "Mallorca"
+    assert offers and offers[0].provider == "holidaycheck.de"
+    assert offers[0].metadata.get("priority_source") is True
+
+
+@pytest.mark.anyio
+async def test_scrape_with_playwright_uses_domain_for_duckduckgo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DuckDuckGo fallbacks should receive a clean domain filter."""
+
+    page = _StubPage()
+    monkeypatch.setattr(
+        scraper_module, "async_playwright", lambda: _StubAsyncPlaywright(page)
+    )
+
+    sites: List[str | None] = []
+
+    async def fake_duckduckgo(
+        page_obj: _StubPage,
+        destination: str,
+        max_results: int = 5,
+        site: str | None = None,
+    ) -> List[RawOffer]:
+        sites.append(site)
+        domain = site or "duckduckgo.com"
+        return [
+            RawOffer(
+                provider=domain,
+                title=f"{destination} via {domain}",
+                price=None,
+                url=f"https://{domain}/result-{len(sites)}",
+                metadata={},
+            )
+        ]
+
+    monkeypatch.setattr(
+        scraper_module, "_extract_duckduckgo_results", fake_duckduckgo
+    )
+
+    config = AgentConfig(
+        destinations=["Mallorca"],
+        preferred_sources=["https://example.com/packages?ref=newsletter"],
+    )
+
+    offers = await scraper_module._scrape_with_playwright(config)
+
+    assert sites and sites[0] == "example.com"
+    assert any(site is None for site in sites), "expected fallback search without site filter"
+    assert any(offer.provider == "example.com" for offer in offers)
+    assert any(offer.metadata.get("priority_source") for offer in offers)

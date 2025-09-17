@@ -6,6 +6,7 @@ from datetime import date, datetime
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+
 _DATE_FORMATS = ["%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d.%m.%y"]
 
 
@@ -105,23 +106,37 @@ _DATE_RANGE_PATTERN = re.compile(
     r"(?P<start>\d{1,2}[./]\d{1,2}[./]\d{2,4})\s*(?:bis|-|to|–|—)\s*(?P<end>\d{1,2}[./]\d{1,2}[./]\d{2,4})",
     re.IGNORECASE,
 )
-
-_DESTINATION_STOP_WORDS = {
-    "ich",
-    "wir",
-    "budget",
-    "suche",
-    "plane",
-    "planen",
-    "brauche",
-    "bitte",
-    "hallo",
-    "urlaub",
-    "reise",
-    "looking",
-    "searching",
-    "need",
-}
+_DESTINATION_STOP_WORDS = frozenset(
+    word.lower()
+    for word in {
+        "ich",
+        "wir",
+        "budget",
+        "suche",
+        "plane",
+        "planen",
+        "brauche",
+        "bitte",
+        "hallo",
+        "urlaub",
+        "reise",
+        "looking",
+        "searching",
+        "need",
+        "danke",
+        "liebe",
+        "lieber",
+        "liebes",
+        "team",
+        "servus",
+        "grüße",
+        "gruesse",
+        "gruß",
+        "gruss",
+        "hey",
+        "hi",
+    }
+)
 
 
 def create_config_from_text(message: str) -> AgentConfig:
@@ -192,4 +207,3 @@ def create_config(data: Mapping[str, Any] | str) -> AgentConfig:
         return create_config_from_form(data)
     if isinstance(data, str):
         return create_config_from_text(data)
-    raise TypeError("Unsupported configuration payload type")

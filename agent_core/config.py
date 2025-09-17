@@ -207,3 +207,7 @@ def create_config(data: Mapping[str, Any] | str) -> AgentConfig:
         return create_config_from_form(data)
     if isinstance(data, str):
         return create_config_from_text(data)
+    raise TypeError(
+        "create_config expected a mapping or string, "
+        f"received {type(data).__name__}"
+    )

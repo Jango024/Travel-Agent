@@ -4,9 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from datetime import datetime
-from threading import Lock
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
@@ -14,35 +12,12 @@ import requests
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from agent_core import AgentResult, create_config_from_form, create_config_from_text, run_agent_workflow
+from task_repository import TaskRecord, TaskRepository
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
-
-
-@dataclass
-class TaskRecord:
-    """Internal representation of a long running task."""
-
-    id: str
-    status: str
-    created_at: datetime
-    config_payload: Dict[str, Any]
-    result: Optional[AgentResult] = None
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "status": self.status,
-            "created_at": self.created_at.isoformat(),
-            "config": self.config_payload,
-            "error": self.error,
-            "metadata": self.metadata,
-            "result": self.result.to_dict() if self.result else None,
-        }
 
 
 class TelegramNotifier:
@@ -62,10 +37,9 @@ class TelegramNotifier:
 
 
 class TaskManager:
-    def __init__(self) -> None:
+    def __init__(self, repository: TaskRepository) -> None:
         self.executor = ThreadPoolExecutor(max_workers=4)
-        self.tasks: Dict[str, TaskRecord] = {}
-        self.lock = Lock()
+        self.repository = repository
 
     def submit(
         self,
@@ -100,33 +74,25 @@ class TaskManager:
                     if current:
                         completion(current)
 
-        with self.lock:
-            self.tasks[task_id] = record
+        self.repository.create_task(record)
         self.executor.submit(_runner)
         return record
 
     def _update_status(self, task_id: str, status: str) -> None:
-        with self.lock:
-            self.tasks[task_id].status = status
+        self.repository.update_status(task_id, status)
 
     def _update_result(self, task_id: str, result: AgentResult) -> None:
-        with self.lock:
-            record = self.tasks[task_id]
-            record.status = "finished"
-            record.result = result
+        self.repository.update_result(task_id, result.to_dict())
 
     def _update_error(self, task_id: str, message: str) -> None:
-        with self.lock:
-            record = self.tasks[task_id]
-            record.status = "failed"
-            record.error = message
+        self.repository.update_error(task_id, message)
 
     def get(self, task_id: str) -> Optional[TaskRecord]:
-        with self.lock:
-            return self.tasks.get(task_id)
+        return self.repository.get(task_id)
 
 
-task_manager = TaskManager()
+task_repository = TaskRepository(os.getenv("TASK_DB_PATH", os.path.join(os.getcwd(), "tasks.db")))
+task_manager = TaskManager(task_repository)
 telegram_notifier = TelegramNotifier(os.getenv("TELEGRAM_BOT_TOKEN"))
 
 
@@ -179,7 +145,9 @@ def run_from_bot():
 
     def _notify(record: TaskRecord) -> None:
         if record.status == "finished" and record.result:
-            telegram_notifier.send_message(chat_id, record.result.report)
+            report_text = record.result.get("report") if isinstance(record.result, dict) else getattr(record.result, "report", None)
+            if report_text:
+                telegram_notifier.send_message(chat_id, report_text)
         elif record.status == "failed":
             telegram_notifier.send_message(chat_id, f"Die Suche ist fehlgeschlagen: {record.error}")
 

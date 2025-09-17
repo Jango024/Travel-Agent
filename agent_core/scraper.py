@@ -5,8 +5,8 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
-from urllib.parse import quote_plus
+from typing import Any, Dict, Iterable, List, Optional, Set
+from urllib.parse import quote_plus, urlparse
 
 try:  # pragma: no cover - optional dependency during development
     from playwright.async_api import Browser, Page, async_playwright  # type: ignore
@@ -19,7 +19,10 @@ from .config import AgentConfig
 
 LOGGER = logging.getLogger(__name__)
 _PRICE_PATTERN = re.compile(r"(\d+[\d.,]*)\s?(?:€|eur|euro|euros)?", re.IGNORECASE)
-
+_STAR_PATTERN = re.compile(r"(\d(?:[.,]\d)?)\s*(?:sterne|stars)", re.IGNORECASE)
+_RECOMMENDATION_PATTERN = re.compile(
+    r"(\d{1,3})\s?%[^%]*(?:weiterempfehlung|recommended|bewertung)", re.IGNORECASE
+)
 
 @dataclass
 class RawOffer:
@@ -49,10 +52,15 @@ async def _dismiss_common_banners(page: Page) -> None:
             continue
 
 
-async def _extract_duckduckgo_results(page: Page, destination: str, max_results: int = 5) -> List[RawOffer]:
+async def _extract_duckduckgo_results(
+    page: Page, destination: str, max_results: int = 5, site: str | None = None
+) -> List[RawOffer]:
     """Fetch a handful of organic search results from DuckDuckGo."""
 
-    query = quote_plus(f"pauschalreise {destination}")
+    query_string = f"pauschalreise {destination}"
+    if site:
+        query_string += f" site:{site}"
+    query = quote_plus(query_string)
     search_url = f"https://duckduckgo.com/?q={query}&ia=web"
 
     await page.goto(search_url, wait_until="networkidle")
@@ -88,9 +96,28 @@ async def _extract_duckduckgo_results(page: Page, destination: str, max_results:
             except ValueError:
                 price = None
 
+        star_rating = None
+        star_match = _STAR_PATTERN.search(snippet)
+        if star_match:
+            try:
+                star_rating = float(star_match.group(1).replace(",", "."))
+            except ValueError:
+                star_rating = None
+
+        recommendation_score = None
+        recommendation_match = _RECOMMENDATION_PATTERN.search(snippet)
+        if recommendation_match:
+            try:
+                recommendation_score = float(recommendation_match.group(1))
+            except ValueError:
+                recommendation_score = None
+
+        provider = site or urlparse(url).netloc or "DuckDuckGo"
+
+
         offers.append(
             RawOffer(
-                provider="DuckDuckGo",
+                provider="provider",
                 title=title,
                 price=price,
                 url=url,
@@ -98,6 +125,9 @@ async def _extract_duckduckgo_results(page: Page, destination: str, max_results:
                     "snippet": snippet,
                     "destination": destination,
                     "source": search_url,
+                    "site_filter": site,
+                    "star_rating": star_rating,
+                    "recommendation_score": recommendation_score,
                 },
             )
         )
@@ -118,19 +148,47 @@ async def _scrape_with_playwright(config: AgentConfig) -> Iterable[RawOffer]:
 
     destinations = config.destinations or ["Pauschalreise"]
     offers: List[RawOffer] = []
+    seen_urls: Set[str] = set()
 
     async with async_playwright() as p:  # pragma: no cover - network heavy
         browser: Browser = await p.firefox.launch(headless=True)
         context = await browser.new_context(locale="de-DE")
         page = await context.new_page()
 
+        for source in config.preferred_sources:
+            if not source:
+                continue
+            normalised_source = re.sub(r"^https?://", "", source.strip().lower())
+            normalised_source = normalised_source.rstrip("/")
+            for destination in destinations:
+                try:
+                    destination_offers = await _extract_duckduckgo_results(
+                        page, destination, site=normalised_source
+                    )
+                except Exception as exc:  # pragma: no cover - network dependent
+                    LOGGER.warning(
+                        "Playwright scraping failed for %s@%s: %s", normalised_source, destination, exc
+                    )
+                    continue
+                for offer in destination_offers:
+                    if offer.url in seen_urls:
+                        continue
+                    offer.metadata["priority_source"] = True
+                    offers.append(offer)
+                    seen_urls.add(offer.url)
+
+        
         for destination in destinations:
             try:
                 destination_offers = await _extract_duckduckgo_results(page, destination)
             except Exception as exc:  # pragma: no cover - network dependent
                 LOGGER.warning("Playwright scraping failed for %s: %s", destination, exc)
                 continue
-            offers.extend(destination_offers)
+            for offer in destination_offers:
+                if offer.url in seen_urls:
+                    continue
+                offers.append(offer)
+                seen_urls.add(offer.url)
 
         await browser.close()
 
@@ -164,6 +222,8 @@ def _fallback_mock_offers(config: AgentConfig, reason: str | None = None) -> Lis
 
     mocked_prices = [749.0, 899.0, 1020.0]
     providers = ["HolidayCheck", "TUI", "Booking.com"]
+    mocked_star_ratings = [4.0, 4.5, 3.5]
+    mocked_recommendations = [88.0, 92.0, 85.0]
     offers: List[RawOffer] = []
     for idx, destination in enumerate(config.destinations or ["Unbekannt"]):
         price = mocked_prices[idx % len(mocked_prices)]
@@ -178,6 +238,8 @@ def _fallback_mock_offers(config: AgentConfig, reason: str | None = None) -> Lis
                     "board": "Halbpension",
                     "origin": config.origin or "Beliebig",
                     "reason": reason or "mock",
+                    "star_rating": mocked_star_ratings[idx % len(mocked_star_ratings)],
+                    "recommendation_score": mocked_recommendations[idx % len(mocked_recommendations)],
                 },
             )
         )

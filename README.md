@@ -66,6 +66,18 @@ Nach dem Start akzeptiert der Bot Freitext-Anfragen (z.B. „2 Personen nach Kre
 Das Backend analysiert die Anfrage, startet einen Hintergrundtask und sendet das Ergebnis nach Fertigstellung
 per Telegram-Nachricht zurück.
 
+## Filter & bevorzugte Quellen
+
+Über die Web-Oberfläche lassen sich neben Budget, Abflugdatum und Unterkunft nun auch
+
+* bevorzugte Reiseportale (z. B. `holidaycheck.de, tui.com`) hinterlegen. Diese Domains werden bei der Suche
+  priorisiert über DuckDuckGo abgefragt.
+* Mindest-Sternebewertung und Weiterempfehlungsquote festlegen. Angebote, die diese Schwellen nicht erfüllen,
+  werden aus der Ergebnisliste gefiltert.
+
+Freitext-Anfragen erkennen ebenfalls einfache Formulierungen wie „mindestens 4 Sterne“ oder „90% Empfehlung“
+und übernehmen sie automatisch in die Suche.
+
 ## Systemd-Deployment (Beispiel)
 
 `/etc/systemd/system/travel-agent.service`

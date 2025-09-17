@@ -166,7 +166,7 @@ def create_config_from_text(message: str) -> AgentConfig:
     if not destinations:
         # fallback: pick capitalised words as potential cities
         for token in re.findall(r"[A-ZÄÖÜ][a-zäöüß]+", message):
-             token_lower = token.lower()
+            token_lower = token.lower()
             if token_lower not in _DESTINATION_STOP_WORDS:
                 destinations.append(token)
 

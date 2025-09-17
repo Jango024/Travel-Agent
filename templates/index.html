@@ -1,1 +1,61 @@
-
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Travel Agent – Suche starten</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Hybrider Reise-Such-Agent</h1>
+      <p>Geben Sie Ihre Reisewünsche ein und starten Sie eine neue Suche.</p>
+      <form action="{{ url_for('run_from_form') }}" method="post">
+        <label>
+          Wunschziele (Kommagetrennt)
+          <input type="text" name="destinations" placeholder="Mallorca, Kreta" required />
+        </label>
+        <div class="grid">
+          <label>
+            Abflugdatum
+            <input type="date" name="departure_date" />
+          </label>
+          <label>
+            Rückflugdatum
+            <input type="date" name="return_date" />
+          </label>
+          <label>
+            Anzahl Reisende
+            <input type="number" name="travellers" value="2" min="1" />
+          </label>
+        </div>
+        <div class="grid">
+          <label>
+            Abflughafen
+            <input type="text" name="origin" placeholder="Berlin" />
+          </label>
+          <label>
+            Budget (EUR)
+            <input type="number" name="budget" step="100" placeholder="1000" />
+          </label>
+        </div>
+        <fieldset>
+          <legend>Bevorzugte Unterkunft</legend>
+          <label><input type="checkbox" name="accommodation" value="Hotel" /> Hotel</label>
+          <label><input type="checkbox" name="accommodation" value="Apartment" /> Apartment</label>
+          <label><input type="checkbox" name="accommodation" value="Resort" /> Resort</label>
+        </fieldset>
+        <fieldset>
+          <legend>Verpflegung</legend>
+          <label><input type="checkbox" name="board" value="Frühstück" /> Frühstück</label>
+          <label><input type="checkbox" name="board" value="Halbpension" /> Halbpension</label>
+          <label><input type="checkbox" name="board" value="All Inclusive" /> All Inclusive</label>
+        </fieldset>
+        <label>
+          Besondere Wünsche oder Hinweise
+          <textarea name="notes" rows="3" placeholder="z.B. familienfreundlich, nah am Strand"></textarea>
+        </label>
+        <button type="submit">Suche starten</button>
+      </form>
+    </main>
+  </body>
+</html>

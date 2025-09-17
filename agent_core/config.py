@@ -112,6 +112,23 @@ _DATE_RANGE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_DESTINATION_STOP_WORDS = {
+    "ich",
+    "wir",
+    "budget",
+    "suche",
+    "plane",
+    "planen",
+    "brauche",
+    "bitte",
+    "hallo",
+    "urlaub",
+    "reise",
+    "looking",
+    "searching",
+    "need",
+}
+
 
 def create_config_from_text(message: str) -> AgentConfig:
     """Create a configuration from a free-form text query.

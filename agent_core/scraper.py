@@ -612,16 +612,21 @@ async def _scrape_with_playwright(config: AgentConfig) -> Iterable[RawOffer]:
         for source in config.preferred_sources:
             if not source:
                 continue
-            normalised_source = re.sub(r"^https?://", "", source.strip().lower())
-            normalised_source = normalised_source.split("?", 1)[0]
-            normalised_source = normalised_source.split("#", 1)[0]
-            normalised_source = normalised_source.rstrip("/")
-            site_domain = normalised_source.split("/", 1)[0]
-            site_domain = site_domain.split(":", 1)[0]
-            site_domain = _PORTAL_ALIASES.get(site_domain, site_domain)
-            handler = _PORTAL_SEARCH_HANDLERS.get(site_domain)
-            site_filter = site_domain or None
-            log_source = site_domain or normalised_source or source.strip().lower()
+            stripped_source = source.strip()
+            if not stripped_source:
+                continue
+            parsed_source = urlparse(stripped_source)
+            raw_host = parsed_source.netloc or stripped_source
+            normalised_host = raw_host.strip().lower()
+            normalised_host = normalised_host.split("?", 1)[0]
+            normalised_host = normalised_host.split("#", 1)[0]
+            normalised_host = normalised_host.rstrip("/")
+            normalised_host = normalised_host.split("/", 1)[0]
+            normalised_host = normalised_host.split(":", 1)[0]
+            portal_host = _PORTAL_ALIASES.get(normalised_host, normalised_host)
+            handler = _PORTAL_SEARCH_HANDLERS.get(portal_host)
+            site_filter = portal_host or None
+            log_source = portal_host or normalised_host or stripped_source.lower()
             for destination in destinations:
                 try:
                     if handler is not None:

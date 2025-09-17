@@ -255,6 +255,66 @@ async def test_scrape_with_playwright_uses_alias_for_holidaycheck(monkeypatch: p
 
 
 @pytest.mark.anyio
+async def test_scrape_with_playwright_handles_full_holidaycheck_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HolidayCheck URLs with paths should still trigger the portal handler."""
+
+    page = _StubPage()
+    monkeypatch.setattr(
+        scraper_module, "async_playwright", lambda: _StubAsyncPlaywright(page)
+    )
+
+    calls: List[str] = []
+
+    async def fake_handler(
+        page_obj: _StubPage, config: AgentConfig, destination: str
+    ) -> List[RawOffer]:
+        calls.append(destination)
+        return [
+            RawOffer(
+                provider="holidaycheck.de",
+                title=f"{destination} Direkt",
+                price=None,
+                url="https://www.holidaycheck.de/angebote/2",
+                metadata={},
+            )
+        ]
+
+    monkeypatch.setitem(
+        scraper_module._PORTAL_SEARCH_HANDLERS,
+        "www.holidaycheck.de",
+        fake_handler,
+    )
+
+    sites: List[str | None] = []
+
+    async def fake_duckduckgo(
+        page_obj: _StubPage,
+        destination: str,
+        max_results: int = 5,
+        site: str | None = None,
+    ) -> List[RawOffer]:
+        sites.append(site)
+        return []
+
+    monkeypatch.setattr(
+        scraper_module, "_extract_duckduckgo_results", fake_duckduckgo
+    )
+
+    config = AgentConfig(
+        destinations=["Mallorca"],
+        preferred_sources=["https://www.holidaycheck.de/pauschalreisen"],
+    )
+
+    offers = await scraper_module._scrape_with_playwright(config)
+
+    assert calls == ["Mallorca"], "expected portal handler to be invoked"
+    assert offers and offers[0].metadata.get("priority_source") is True
+    assert sites and sites[-1] is None, "fallback DuckDuckGo search should still run"
+
+
+@pytest.mark.anyio
 async def test_scrape_with_playwright_uses_domain_for_duckduckgo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

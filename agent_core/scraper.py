@@ -117,7 +117,7 @@ async def _extract_duckduckgo_results(
 
         offers.append(
             RawOffer(
-                provider="provider",
+                provider=provider,
                 title=title,
                 price=price,
                 url=url,

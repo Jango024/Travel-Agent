@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 
+import agent_core.scraper as scraper_module
 from agent_core.config import AgentConfig
-from agent_core.scraper import RawOffer, _search_holidaycheck
+from agent_core.processor import prepare_offers
+from agent_core.scraper import RawOffer, _search_holidaycheck, _search_tui
 
 
 class _StubLocator:
@@ -53,21 +55,37 @@ class _StubCard:
         duration: str = "",
         rating: str = "",
     ) -> None:
+        title_element = _StubElement(title)
+        price_element = _StubElement(price_text)
         self._elements: Dict[str, _StubElement] = {
-            "[data-testid='offer-title']": _StubElement(title),
-            ".offer-title": _StubElement(title),
-            "header h3": _StubElement(title),
+            "[data-testid='offer-title']": title_element,
+            ".offer-title": title_element,
+            ".hotel-name": title_element,
+            "header h3": title_element,
             "a[data-testid='offer-link']": _StubElement("", {"href": href}),
             "a[href]": _StubElement("", {"href": href}),
-            "[data-testid='offer-price']": _StubElement(price_text),
-            ".offer-price": _StubElement(price_text),
+            "[data-testid='offer-price']": price_element,
+            ".offer-price": price_element,
+            ".price": price_element,
+            "[data-testid='product-price']": price_element,
         }
         if board:
-            self._elements["[data-testid='offer-board']"] = _StubElement(board)
+            board_element = _StubElement(board)
+            self._elements["[data-testid='offer-board']"] = board_element
+            self._elements[".board"] = board_element
+            self._elements["[data-testid='catering']"] = board_element
+            self._elements["[data-testid='product-board']"] = board_element
         if duration:
-            self._elements["[data-testid='offer-duration']"] = _StubElement(duration)
+            duration_element = _StubElement(duration)
+            self._elements["[data-testid='offer-duration']"] = duration_element
+            self._elements[".duration"] = duration_element
+            self._elements["[data-testid='stay-length']"] = duration_element
+            self._elements["[data-testid='product-duration']"] = duration_element
         if rating:
-            self._elements["[data-testid='offer-rating']"] = _StubElement(rating)
+            rating_element = _StubElement(rating)
+            self._elements["[data-testid='offer-rating']"] = rating_element
+            self._elements[".rating"] = rating_element
+            self._elements["[data-testid='recommendation']"] = rating_element
 
     async def query_selector(self, selector: str) -> Optional[_StubElement]:
         return self._elements.get(selector)
@@ -106,10 +124,56 @@ class _StubPage:
         if selector in {
             "[data-testid='offer-card']",
             "article[data-testid='hc-result-card']",
+            "article[data-testid='result-card']",
             "article",
         }:
             return self.cards
         return []
+
+
+class _StubPlaywrightContext:
+    def __init__(self, page: _StubPage) -> None:
+        self._page = page
+
+    async def new_page(self) -> _StubPage:
+        return self._page
+
+
+class _StubPlaywrightBrowser:
+    def __init__(self, page: _StubPage) -> None:
+        self._page = page
+
+    async def new_context(self, locale: str = "") -> _StubPlaywrightContext:
+        return _StubPlaywrightContext(self._page)
+
+    async def close(self) -> None:  # pragma: no cover - trivial
+        return None
+
+
+class _StubFirefoxLauncher:
+    def __init__(self, page: _StubPage) -> None:
+        self._page = page
+
+    async def launch(self, headless: bool = True) -> _StubPlaywrightBrowser:
+        return _StubPlaywrightBrowser(self._page)
+
+
+class _StubPlaywrightRuntime:
+    def __init__(self, page: _StubPage) -> None:
+        self.firefox = _StubFirefoxLauncher(page)
+
+
+class _StubAsyncPlaywright:
+    def __init__(self, page: _StubPage) -> None:
+        self._runtime = _StubPlaywrightRuntime(page)
+
+    async def __aenter__(self) -> _StubPlaywrightRuntime:
+        return self._runtime
+
+    async def __aexit__(
+        self, exc_type, exc: BaseException | None, tb: Any | None
+    ) -> bool:  # pragma: no cover - trivial
+        return False
 
 
 @pytest.fixture
@@ -151,7 +215,174 @@ async def test_search_holidaycheck_returns_raw_offers() -> None:
     assert offer.metadata["travellers"] == 2
     assert offer.metadata["board"] == "Halbpension"
     assert offer.metadata.get("recommendation_score") == 95.0
+    assert offer.metadata["duration"] == "7 Nächte"
+    assert offer.metadata["nights"] == 7
 
     # The stubbed inputs should have been filled with search parameters.
     assert page.filled["input[name='destination']"] == "Mallorca"
     assert page.selected.get("select[name='travellers']") == "2"
+
+    # Prepare offers should propagate metadata to the processed result.
+    processed_offers = prepare_offers(offers, config)
+    assert processed_offers and processed_offers[0].nights == 7
+
+
+@pytest.mark.anyio
+async def test_scrape_with_playwright_uses_alias_for_holidaycheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preferred sources like 'HolidayCheck' should resolve to the portal handler."""
+
+    page = _StubPage()
+    monkeypatch.setattr(
+        scraper_module, "async_playwright", lambda: _StubAsyncPlaywright(page)
+    )
+
+    calls: List[tuple[_StubPage, str]] = []
+
+    async def fake_handler(
+        page_obj: _StubPage, config: AgentConfig, destination: str
+    ) -> List[RawOffer]:
+        calls.append((page_obj, destination))
+        return [
+            RawOffer(
+                provider="holidaycheck.de",
+                title=f"{destination} Special",
+                price=None,
+                url="https://www.holidaycheck.de/angebote/1",
+                metadata={},
+            )
+        ]
+
+    monkeypatch.setitem(
+        scraper_module._PORTAL_SEARCH_HANDLERS, "holidaycheck.de", fake_handler
+    )
+
+    async def fake_duckduckgo(
+        page_obj: _StubPage,
+        destination: str,
+        max_results: int = 5,
+        site: str | None = None,
+    ) -> List[RawOffer]:
+        return []
+
+    monkeypatch.setattr(
+        scraper_module, "_extract_duckduckgo_results", fake_duckduckgo
+    )
+
+    config = AgentConfig(destinations=["Mallorca"], preferred_sources=["HolidayCheck"])
+
+    offers = await scraper_module._scrape_with_playwright(config)
+
+    assert calls and calls[0][0] is page
+    assert calls[0][1] == "Mallorca"
+    assert offers and offers[0].provider == "holidaycheck.de"
+    assert offers[0].metadata.get("priority_source") is True
+
+
+@pytest.mark.anyio
+async def test_scrape_with_playwright_uses_domain_for_duckduckgo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DuckDuckGo fallbacks should receive a clean domain filter."""
+
+    page = _StubPage()
+    monkeypatch.setattr(
+        scraper_module, "async_playwright", lambda: _StubAsyncPlaywright(page)
+    )
+
+    sites: List[str | None] = []
+
+    async def fake_duckduckgo(
+        page_obj: _StubPage,
+        destination: str,
+        max_results: int = 5,
+        site: str | None = None,
+    ) -> List[RawOffer]:
+        sites.append(site)
+        domain = site or "duckduckgo.com"
+        return [
+            RawOffer(
+                provider=domain,
+                title=f"{destination} via {domain}",
+                price=None,
+                url=f"https://{domain}/result-{len(sites)}",
+                metadata={},
+            )
+        ]
+
+    monkeypatch.setattr(
+        scraper_module, "_extract_duckduckgo_results", fake_duckduckgo
+    )
+
+    config = AgentConfig(
+        destinations=["Mallorca"],
+        preferred_sources=["https://example.com/packages?ref=newsletter"],
+    )
+
+    offers = await scraper_module._scrape_with_playwright(config)
+
+    assert sites and sites[0] == "example.com"
+    assert any(site is None for site in sites), "expected fallback search without site filter"
+    assert any(offer.provider == "example.com" for offer in offers)
+    assert any(offer.metadata.get("priority_source") for offer in offers)
+
+
+@pytest.mark.anyio
+async def test_search_tui_extracts_nights_and_prepares_offers() -> None:
+    """TUI scraping should preserve duration metadata and parsed nights."""
+
+    page = _StubPage(
+        cards=[
+            _StubCard(
+                title="Resort Kreta",
+                href="/angebote/kreta",
+                price_text="1299 €",
+                board="All Inclusive",
+                duration="10 Tage (7 Übernachtungen)",
+            )
+        ]
+    )
+    config = AgentConfig(destinations=["Kreta"], travellers=2)
+
+    offers = await _search_tui(page, config, "Kreta")
+
+    assert offers, "expected at least one RawOffer"
+
+    offer = offers[0]
+    assert isinstance(offer, RawOffer)
+    assert offer.provider == "tui.com"
+    assert offer.metadata["duration"] == "10 Tage (7 Übernachtungen)"
+    assert offer.metadata["nights"] == 7
+
+    processed_offers = prepare_offers(offers, config)
+    assert processed_offers and processed_offers[0].nights == 7
+
+
+@pytest.mark.anyio
+async def test_search_tui_falls_back_to_days_when_no_nights_found() -> None:
+    """If only days are present the scraper should still set a night count."""
+
+    page = _StubPage(
+        cards=[
+            _StubCard(
+                title="Städtetrip",
+                href="/angebote/city",
+                price_text="499 €",
+                duration="5 Tage",
+            )
+        ]
+    )
+    config = AgentConfig(destinations=["Berlin"], travellers=2)
+
+    offers = await _search_tui(page, config, "Berlin")
+
+    assert offers, "expected at least one RawOffer"
+
+    offer = offers[0]
+    assert isinstance(offer, RawOffer)
+    assert offer.metadata["duration"] == "5 Tage"
+    assert offer.metadata["nights"] == 5
+
+    processed_offers = prepare_offers(offers, config)
+    assert processed_offers and processed_offers[0].nights == 5

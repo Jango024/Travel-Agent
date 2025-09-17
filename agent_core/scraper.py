@@ -23,6 +23,11 @@ _STAR_PATTERN = re.compile(r"(\d(?:[.,]\d)?)\s*(?:sterne|stars)", re.IGNORECASE)
 _RECOMMENDATION_PATTERN = re.compile(
     r"(\d{1,3})\s?%[^%]*(?:weiterempfehlung|recommended|bewertung)", re.IGNORECASE
 )
+_NIGHTS_PATTERN = re.compile(
+    r"(\d+)[\s\-–]*(?:nächte?|nacht|naechte?|übernachtung(?:en)?|uebernachtung(?:en)?|nights?)",
+    re.IGNORECASE,
+)
+_DAYS_PATTERN = re.compile(r"(\d+)[\s\-–]*(?:tage?|tag|days?|day)", re.IGNORECASE)
 
 
 def _parse_price_from_text(text: str) -> Optional[float]:
@@ -36,6 +41,28 @@ def _parse_price_from_text(text: str) -> Optional[float]:
         return float(numeric)
     except ValueError:
         return None
+
+
+def _parse_nights_from_text(text: str) -> Optional[int]:
+    """Extract the number of nights from a duration string."""
+
+    if not text:
+        return None
+
+    match = _NIGHTS_PATTERN.search(text)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+
+    match = _DAYS_PATTERN.search(text)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
 
 
 async def _try_fill_field(page: Page, selectors: Iterable[str], value: str) -> None:
@@ -129,6 +156,17 @@ class RawOffer:
     price: Optional[float]
     url: str
     metadata: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise the raw offer to a JSON-compatible structure."""
+
+        return {
+            "provider": self.provider,
+            "title": self.title,
+            "price": self.price,
+            "url": self.url,
+            "metadata": dict(self.metadata),
+        }
 
 
 async def _dismiss_common_banners(page: Page) -> None:
@@ -359,6 +397,7 @@ async def _search_holidaycheck(
                 "[data-testid='stay-length']",
             ],
         )
+        nights = _parse_nights_from_text(duration) if duration else None
         rating_text = await _extract_text(
             card,
             [
@@ -383,6 +422,8 @@ async def _search_holidaycheck(
             metadata["board"] = board
         if duration:
             metadata["duration"] = duration
+        if nights is not None:
+            metadata["nights"] = nights
 
         if rating_text:
             star_match = _STAR_PATTERN.search(rating_text)
@@ -533,6 +574,7 @@ async def _search_tui(
                 "[data-testid='product-duration']",
             ],
         )
+        nights = _parse_nights_from_text(duration) if duration else None
 
         metadata: Dict[str, Any] = {
             "destination": destination,
@@ -549,6 +591,8 @@ async def _search_tui(
             metadata["board"] = board
         if duration:
             metadata["duration"] = duration
+        if nights is not None:
+            metadata["nights"] = nights
 
         offers.append(
             RawOffer(
@@ -563,6 +607,12 @@ async def _search_tui(
             break
 
     return offers
+
+
+_PORTAL_ALIASES: Dict[str, str] = {
+    "holidaycheck": "holidaycheck.de",
+    "tui": "tui.com",
+}
 
 
 _PORTAL_SEARCH_HANDLERS: Dict[
@@ -596,20 +646,27 @@ async def _scrape_with_playwright(config: AgentConfig) -> Iterable[RawOffer]:
             if not source:
                 continue
             normalised_source = re.sub(r"^https?://", "", source.strip().lower())
+            normalised_source = normalised_source.split("?", 1)[0]
+            normalised_source = normalised_source.split("#", 1)[0]
             normalised_source = normalised_source.rstrip("/")
-            handler = _PORTAL_SEARCH_HANDLERS.get(normalised_source)
+            site_domain = normalised_source.split("/", 1)[0]
+            site_domain = site_domain.split(":", 1)[0]
+            site_domain = _PORTAL_ALIASES.get(site_domain, site_domain)
+            handler = _PORTAL_SEARCH_HANDLERS.get(site_domain)
+            site_filter = site_domain or None
+            log_source = site_domain or normalised_source or source.strip().lower()
             for destination in destinations:
                 try:
                     if handler is not None:
                         destination_offers = await handler(page, config, destination)
                     else:
                         destination_offers = await _extract_duckduckgo_results(
-                            page, destination, site=normalised_source
+                            page, destination, site=site_filter
                         )
                 except Exception as exc:  # pragma: no cover - network dependent
                     LOGGER.warning(
                         "Playwright scraping failed for %s@%s: %s",
-                        normalised_source,
+                        log_source,
                         destination,
                         exc,
                     )
@@ -665,15 +722,15 @@ def _fallback_mock_offers(config: AgentConfig, reason: str | None = None) -> Lis
     LOGGER.debug("Falling back to mock offers: %s", reason or "no details")
 
     mocked_prices = [749.0, 899.0, 1020.0]
-    providers = ["HolidayCheck", "TUI", "Booking.com"]
     mocked_star_ratings = [4.0, 4.5, 3.5]
     mocked_recommendations = [88.0, 92.0, 85.0]
     offers: List[RawOffer] = []
     for idx, destination in enumerate(config.destinations or ["Unbekannt"]):
         price = mocked_prices[idx % len(mocked_prices)]
+        mock_reason = reason or "mock"
         offers.append(
             RawOffer(
-                provider=providers[idx % len(providers)],
+                provider="Mock",
                 title=f"Pauschalreise nach {destination}",
                 price=price,
                 url=f"https://example.com/offers/{destination.lower().replace(' ', '-')}",
@@ -681,7 +738,8 @@ def _fallback_mock_offers(config: AgentConfig, reason: str | None = None) -> Lis
                     "nights": 7,
                     "board": "Halbpension",
                     "origin": config.origin or "Beliebig",
-                    "reason": reason or "mock",
+                    "reason": mock_reason,
+                    "mock_reason": mock_reason,
                     "star_rating": mocked_star_ratings[idx % len(mocked_star_ratings)],
                     "recommendation_score": mocked_recommendations[idx % len(mocked_recommendations)],
                 },

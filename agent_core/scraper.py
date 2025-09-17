@@ -565,6 +565,12 @@ async def _search_tui(
     return offers
 
 
+_PORTAL_ALIASES: Dict[str, str] = {
+    "holidaycheck": "holidaycheck.de",
+    "tui": "tui.com",
+}
+
+
 _PORTAL_SEARCH_HANDLERS: Dict[
     str, Callable[[Page, AgentConfig, str], Awaitable[List[RawOffer]]]
 ] = {
@@ -596,20 +602,27 @@ async def _scrape_with_playwright(config: AgentConfig) -> Iterable[RawOffer]:
             if not source:
                 continue
             normalised_source = re.sub(r"^https?://", "", source.strip().lower())
+            normalised_source = normalised_source.split("?", 1)[0]
+            normalised_source = normalised_source.split("#", 1)[0]
             normalised_source = normalised_source.rstrip("/")
-            handler = _PORTAL_SEARCH_HANDLERS.get(normalised_source)
+            site_domain = normalised_source.split("/", 1)[0]
+            site_domain = site_domain.split(":", 1)[0]
+            site_domain = _PORTAL_ALIASES.get(site_domain, site_domain)
+            handler = _PORTAL_SEARCH_HANDLERS.get(site_domain)
+            site_filter = site_domain or None
+            log_source = site_domain or normalised_source or source.strip().lower()
             for destination in destinations:
                 try:
                     if handler is not None:
                         destination_offers = await handler(page, config, destination)
                     else:
                         destination_offers = await _extract_duckduckgo_results(
-                            page, destination, site=normalised_source
+                            page, destination, site=site_filter
                         )
                 except Exception as exc:  # pragma: no cover - network dependent
                     LOGGER.warning(
                         "Playwright scraping failed for %s@%s: %s",
-                        normalised_source,
+                        log_source,
                         destination,
                         exc,
                     )

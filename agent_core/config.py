@@ -29,65 +29,59 @@ class AgentConfig:
 
         return {
             "destinations": self.destinations,
-            diff --git a/agent_core/config.py b/agent_core/config.py
-index ded0c20f5a7c36faa5edac15464aacbb3dca9fcb..728d71f8891659101ee8d6c523843085c36d305c 100644
---- a/agent_core/config.py
-+++ b/agent_core/config.py
-@@ -32,51 +32,53 @@ class AgentConfig:
-             "departure_date": self.departure_date.isoformat() if self.departure_date else None,
-             "return_date": self.return_date.isoformat() if self.return_date else None,
-             "travellers": self.travellers,
-             "budget": self.budget,
-             "origin": self.origin,
-             "accommodation_types": self.accommodation_types,
-             "board_types": self.board_types,
-             "notes": self.notes,
-         }
- 
- 
- def _parse_date(value: str | None) -> Optional[date]:
-     if not value:
-         return None
-     for fmt in _DATE_FORMATS:
-         try:
-             return datetime.strptime(value, fmt).date()
-         except ValueError:
-             continue
-     return None
- 
- 
- def _parse_float(value: str | None) -> Optional[float]:
-     if not value:
-         return None
--    cleaned = value.replace("€", "").replace(",", ".").strip()
-+    cleaned = value.replace("€", "").strip()
-+    cleaned = re.sub(r"(?<=\d)\.(?=\d{3}(?:\D|$))", "", cleaned)
-+    cleaned = cleaned.replace(",", ".")
-     try:
-         return float(cleaned)
-     except ValueError:
-         return None
- 
- 
- def _ensure_list(value: str | Iterable[str] | None) -> List[str]:
-     if value is None:
-         return []
-     if isinstance(value, str):
-         if not value:
-             return []
-         return [item.strip() for item in value.split(",") if item.strip()]
-     return [item for item in value if item]
- 
- 
- def create_config_from_form(form_data: Mapping[str, Any]) -> AgentConfig:
-     """Create a configuration object from an HTML form payload."""
- 
-     destinations = _ensure_list(form_data.get("destinations"))
-     if not destinations:
-         destination_value = form_data.get("destination") or form_data.get("destinations") or ""
-         destinations = _ensure_list(destination_value)
- 
-     accommodation_types = _ensure_list(form_data.get("accommodation"))
+          "departure_date": self.departure_date.isoformat() if self.departure_date else None,
+            "return_date": self.return_date.isoformat() if self.return_date else None,
+            "travellers": self.travellers,
+            "budget": self.budget,
+            "origin": self.origin,
+            "accommodation_types": self.accommodation_types,
+            "board_types": self.board_types,
+            "notes": self.notes,
+        }
+
+
+def _parse_date(value: str | None) -> Optional[date]:
+    if not value:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_float(value: str | None) -> Optional[float]:
+    if not value:
+        return None
+    cleaned = value.replace("€", "").strip()
+    cleaned = re.sub(r"(?<=\d)\.(?=\d{3}(?:\D|$))", "", cleaned)
+    cleaned = cleaned.replace(",", ".")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _ensure_list(value: str | Iterable[str] | None) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        if not value:
+            return []
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [item for item in value if item]
+
+
+def create_config_from_form(form_data: Mapping[str, Any]) -> AgentConfig:
+    """Create a configuration object from an HTML form payload."""
+
+    destinations = _ensure_list(form_data.get("destinations"))
+    if not destinations:
+        destination_value = form_data.get("destination") or form_data.get("destinations") or ""
+        destinations = _ensure_list(destination_value)
+
+    accommodation_types = _ensure_list(form_data.get("accommodation"))
     board_types = _ensure_list(form_data.get("board"))
 
     config = AgentConfig(

@@ -18,12 +18,10 @@ create_config_from_text = _CONFIG_MODULE.create_config_from_text
 
 
 class ParseFloatTests(unittest.TestCase):
-    def test_parse_float_removes_euro_thousands_separator(self) -> None:
-        self.assertEqual(_parse_float("1.200€"), 1200.0)
-
-    def test_parse_float_handles_decimal_comma_after_thousands_separator(self) -> None:
-        self.assertEqual(_parse_float("1.200,50"), 1200.5)
-
+    def test_parse_float_accepts_european_formats(self) -> None:
+        for raw, expected in [("1.200€", 1200.0), ("1.200,50", 1200.5)]:
+            with self.subTest(raw=raw):
+                self.assertEqual(_parse_float(raw), expected)
 
 class ExistingCallerTests(unittest.TestCase):
     def test_create_config_from_form_budget_parses_thousands_separator(self) -> None:

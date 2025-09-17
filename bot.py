@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 BACKEND_URL: Final[str] = os.getenv("TRAVEL_AGENT_BACKEND_URL", "http://localhost:5000")
-BOT_TOKEN: Final[str | None] = os.getenv("TELEGRAM_BOT_TOKEN")
+BOT_TOKEN: Final[str | None] = os.getenv(8435342547:AAEzVNMINrH9AHYhUitC4Dbbvr6iyXyAMLw")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

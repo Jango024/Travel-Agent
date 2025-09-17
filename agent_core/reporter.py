@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 import math
-from typing import Iterable, List, Sequence
+from typing import Iterable, List
 
 from .config import AgentConfig
 from .processor import ProcessedOffer, summarise_offers
@@ -68,29 +68,18 @@ def generate_offer_table(offers: Iterable[ProcessedOffer]) -> str:
     return "\n".join(rows)
 
 
-def build_report(
-    config: AgentConfig, offers: List[ProcessedOffer], warnings: Sequence[str] | None = None
-) -> str:
+def build_report(config: AgentConfig, offers: List[ProcessedOffer]) -> str:
     """Create a text report summarising the results."""
 
     summary = summarise_offers(offers)
-    warning_messages = [message.strip() for message in (warnings or []) if message]
     lines: List[str] = [
         "Reise-Report",
         "============",
-    ]
-    if warning_messages:
-        lines.append("")
-        lines.extend(f"WARNUNG: {message}" for message in warning_messages)
-
-    lines.extend(
-        [
-            "",
-            f"Ziele: {', '.join(config.destinations)}",
+        "",
+        f"Ziele: {', '.join(config.destinations)}",
         f"Zeitraum: {_format_date(config.departure_date)} – {_format_date(config.return_date)}",
         f"Reisende: {config.travellers}",
-        ]
-    )
+    ]
     if config.budget:
         lines.append(f"Budget: {config.budget:.0f} €")
     if config.board_types:

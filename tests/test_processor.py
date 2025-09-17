@@ -1,15 +1,13 @@
 import sys
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent_core.config import AgentConfig
 from agent_core.processor import prepare_offers, summarise_offers
 from agent_core.reporter import build_report
-from agent_core.scraper import RawOffer, _fallback_mock_offers
-from agent_core.workflow import run_agent_workflow
+from agent_core.scraper import RawOffer
 
 
 class ProcessorPipelineTests(unittest.TestCase):
@@ -121,23 +119,6 @@ class ProcessorPipelineTests(unittest.TestCase):
         report = build_report(config, processed_offers)
         self.assertIn("Keine Angebote mit Preisangabe", report)
         self.assertIn("| NoPrice | Berlin | – |", report)
-
-    def test_mock_offers_trigger_warning_and_metadata(self) -> None:
-        config = AgentConfig(destinations=["Berlin"])
-        fallback_offers = _fallback_mock_offers(config, reason="playwright-empty")
-
-        with patch("agent_core.workflow.scrape_sources", return_value=fallback_offers):
-            result = run_agent_workflow(config)
-
-        expected_warning = "Playwright-Suche fehlgeschlagen, zeige Beispielangebote (Details: keine Ergebnisse von Playwright erhalten)."
-        self.assertIn(f"WARNUNG: {expected_warning}", result.report)
-        self.assertIn(expected_warning, result.warnings)
-
-        payload = result.to_dict()
-        self.assertIn(expected_warning, payload["warnings"])
-        self.assertTrue(payload["raw_offers"])
-        for offer in payload["raw_offers"]:
-            self.assertEqual(offer["metadata"].get("mock_reason"), "playwright-empty")
 
 
 if __name__ == "__main__":

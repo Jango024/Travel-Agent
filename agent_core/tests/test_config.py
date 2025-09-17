@@ -33,6 +33,26 @@ class ExistingCallerTests(unittest.TestCase):
     def test_create_config_from_text_budget_parses_thousands_separator(self) -> None:
         config = create_config_from_text("Wir reisen nach Berlin mit Budget 1.200,50€")
         self.assertEqual(config.budget, 1200.5)
+        
+    def test_create_config_from_form_handles_preferred_sources_and_filters(self) -> None:
+        config = create_config_from_form(
+            {
+                "destinations": "Kreta",
+                "preferred_sources": "holidaycheck.de, tui.com",
+                "min_star_rating": "4",
+                "min_recommendation_score": "85",
+            }
+        )
+        self.assertEqual(config.preferred_sources, ["holidaycheck.de", "tui.com"])
+        self.assertAlmostEqual(config.min_star_rating or 0, 4.0)
+        self.assertAlmostEqual(config.min_recommendation_score or 0, 85.0)
+
+    def test_create_config_from_text_detects_star_and_recommendation(self) -> None:
+        config = create_config_from_text(
+            "Bitte Reise nach Rhodos mit 4.5 Sterne Hotel und mindestens 90% Empfehlung"
+        )
+        self.assertAlmostEqual(config.min_star_rating or 0, 4.5)
+        self.assertAlmostEqual(config.min_recommendation_score or 0, 90.0)
 
 class CreateConfigInputTypeTests(unittest.TestCase):
     def test_raises_type_error_for_unsupported_type(self) -> None:

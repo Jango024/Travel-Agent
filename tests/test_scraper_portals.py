@@ -7,7 +7,8 @@ from typing import Dict, List, Optional
 import pytest
 
 from agent_core.config import AgentConfig
-from agent_core.scraper import RawOffer, _search_holidaycheck
+from agent_core.processor import prepare_offers
+from agent_core.scraper import RawOffer, _search_holidaycheck, _search_tui
 
 
 class _StubLocator:
@@ -53,21 +54,69 @@ class _StubCard:
         duration: str = "",
         rating: str = "",
     ) -> None:
-        self._elements: Dict[str, _StubElement] = {
-            "[data-testid='offer-title']": _StubElement(title),
-            ".offer-title": _StubElement(title),
-            "header h3": _StubElement(title),
-            "a[data-testid='offer-link']": _StubElement("", {"href": href}),
-            "a[href]": _StubElement("", {"href": href}),
-            "[data-testid='offer-price']": _StubElement(price_text),
-            ".offer-price": _StubElement(price_text),
-        }
+        self._elements: Dict[str, _StubElement] = {}
+
+        def _register(selectors: List[str], element: _StubElement) -> None:
+            for selector in selectors:
+                self._elements[selector] = element
+
+        title_element = _StubElement(title)
+        _register(
+            [
+                "[data-testid='offer-title']",
+                ".offer-title",
+                ".hotel-name",
+                ".product-tile__title",
+                "header h3",
+            ],
+            title_element,
+        )
+
+        link_element = _StubElement("", {"href": href})
+        _register(["a[data-testid='offer-link']", "a[href]"], link_element)
+
+        price_element = _StubElement(price_text)
+        _register(
+            [
+                "[data-testid='offer-price']",
+                ".offer-price",
+                ".price",
+                "[data-testid='product-price']",
+            ],
+            price_element,
+        )
+
         if board:
-            self._elements["[data-testid='offer-board']"] = _StubElement(board)
+            board_element = _StubElement(board)
+            _register(
+                [
+                    "[data-testid='offer-board']",
+                    ".board",
+                    "[data-testid='product-board']",
+                ],
+                board_element,
+            )
         if duration:
-            self._elements["[data-testid='offer-duration']"] = _StubElement(duration)
+            duration_element = _StubElement(duration)
+            _register(
+                [
+                    "[data-testid='offer-duration']",
+                    ".duration",
+                    "[data-testid='stay-length']",
+                    "[data-testid='product-duration']",
+                ],
+                duration_element,
+            )
         if rating:
-            self._elements["[data-testid='offer-rating']"] = _StubElement(rating)
+            rating_element = _StubElement(rating)
+            _register(
+                [
+                    "[data-testid='offer-rating']",
+                    ".rating",
+                    "[data-testid='recommendation']",
+                ],
+                rating_element,
+            )
 
     async def query_selector(self, selector: str) -> Optional[_StubElement]:
         return self._elements.get(selector)
@@ -106,6 +155,7 @@ class _StubPage:
         if selector in {
             "[data-testid='offer-card']",
             "article[data-testid='hc-result-card']",
+            "article[data-testid='result-card']",
             "article",
         }:
             return self.cards
@@ -151,7 +201,43 @@ async def test_search_holidaycheck_returns_raw_offers() -> None:
     assert offer.metadata["travellers"] == 2
     assert offer.metadata["board"] == "Halbpension"
     assert offer.metadata.get("recommendation_score") == 95.0
+    assert offer.metadata["duration"] == "7 Nächte"
+    assert offer.metadata["nights"] == 7
 
     # The stubbed inputs should have been filled with search parameters.
     assert page.filled["input[name='destination']"] == "Mallorca"
     assert page.selected.get("select[name='travellers']") == "2"
+
+    processed_offers = prepare_offers(offers, config)
+    assert processed_offers and processed_offers[0].nights == 7
+
+
+@pytest.mark.anyio
+async def test_search_tui_sets_nights_metadata_and_prepares_offers() -> None:
+    """TUI scraping should persist parsed nights and pass them through prepare_offers."""
+
+    page = _StubPage(
+        cards=[
+            _StubCard(
+                title="Resort Kreta",
+                href="/angebote/kreta",
+                price_text="1299 €",
+                board="All Inclusive",
+                duration="10 Tage (7 Nächte)",
+            )
+        ]
+    )
+    config = AgentConfig(destinations=["Kreta"], travellers=2)
+
+    offers = await _search_tui(page, config, "Kreta")
+
+    assert offers, "expected at least one RawOffer"
+
+    offer = offers[0]
+    assert isinstance(offer, RawOffer)
+    assert offer.provider == "tui.com"
+    assert offer.metadata["duration"] == "10 Tage (7 Nächte)"
+    assert offer.metadata["nights"] == 7
+
+    processed_offers = prepare_offers(offers, config)
+    assert processed_offers and processed_offers[0].nights == 7

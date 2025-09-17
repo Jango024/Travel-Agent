@@ -3,6 +3,9 @@
 Hybrides Agentensystem zur Recherche von Pauschalreisen mit Web-Oberfläche, asynchronem Flask-Backend
 und Telegram-Bot-Steuerung. Das Projekt besteht aus vier entkoppelten Hauptkomponenten:
 
+> **Hinweis:** Der Telegram-Bot-Token wird nicht im Repository gespeichert und muss vor dem Start über die
+> Umgebungsvariable `TELEGRAM_BOT_TOKEN` gesetzt werden.
+
 1. **Frontend (Web-UI)** – HTML-Formular zur Eingabe aller Reiseparameter.
 2. **Backend (Flask API & Orchestrator)** – nimmt Anfragen der UI und des Bots entgegen und verwaltet
 die Hintergrundtasks.

@@ -23,6 +23,9 @@ _STAR_PATTERN = re.compile(r"(\d(?:[.,]\d)?)\s*(?:sterne|stars)", re.IGNORECASE)
 _RECOMMENDATION_PATTERN = re.compile(
     r"(\d{1,3})\s?%[^%]*(?:weiterempfehlung|recommended|bewertung)", re.IGNORECASE
 )
+_NIGHTS_PATTERN = re.compile(
+    r"(\d+)\s*(?:nächte?|nacht|naechte?|tage?|tag|days?|day)", re.IGNORECASE
+)
 
 
 def _parse_price_from_text(text: str) -> Optional[float]:
@@ -34,6 +37,21 @@ def _parse_price_from_text(text: str) -> Optional[float]:
     try:
         numeric = match.group(1).replace(".", "").replace(",", ".")
         return float(numeric)
+    except ValueError:
+        return None
+
+
+def _parse_nights_from_text(text: str) -> Optional[int]:
+    """Extract the number of nights from a duration string."""
+
+    if not text:
+        return None
+
+    match = _NIGHTS_PATTERN.search(text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
     except ValueError:
         return None
 
@@ -359,6 +377,7 @@ async def _search_holidaycheck(
                 "[data-testid='stay-length']",
             ],
         )
+        nights = _parse_nights_from_text(duration) if duration else None
         rating_text = await _extract_text(
             card,
             [
@@ -383,6 +402,8 @@ async def _search_holidaycheck(
             metadata["board"] = board
         if duration:
             metadata["duration"] = duration
+        if nights is not None:
+            metadata["nights"] = nights
 
         if rating_text:
             star_match = _STAR_PATTERN.search(rating_text)
@@ -533,6 +554,7 @@ async def _search_tui(
                 "[data-testid='product-duration']",
             ],
         )
+        nights = _parse_nights_from_text(duration) if duration else None
 
         metadata: Dict[str, Any] = {
             "destination": destination,
@@ -549,6 +571,8 @@ async def _search_tui(
             metadata["board"] = board
         if duration:
             metadata["duration"] = duration
+        if nights is not None:
+            metadata["nights"] = nights
 
         offers.append(
             RawOffer(

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 
@@ -21,6 +21,8 @@ class ProcessedOffer:
     url: str
     nights: int
     board: str
+    star_rating: Optional[float] = None
+    recommendation_score: Optional[float] = None
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -30,6 +32,8 @@ class ProcessedOffer:
             "url": self.url,
             "nights": self.nights,
             "board": self.board,
+            "star_rating": self.star_rating,
+            "recommendation_score": self.recommendation_score,
         }
 
 
@@ -49,6 +53,8 @@ def offers_to_dataframe(offers: Iterable[RawOffer], config: AgentConfig) -> pd.D
                 "url": offer.url,
                 "nights": offer.metadata.get("nights", 7),
                 "board": offer.metadata.get("board", "Unbekannt"),
+                "star_rating": offer.metadata.get("star_rating"),
+                "recommendation_score": offer.metadata.get("recommendation_score")
             }
         )
     return pd.DataFrame.from_records(records)
@@ -60,6 +66,22 @@ def filter_by_budget(df: pd.DataFrame, config: AgentConfig) -> pd.DataFrame:
     if config.budget is None or df.empty:
         return df
     return df[df["price"].fillna(float("inf")) <= config.budget]
+
+
+def filter_by_star_rating(df: pd.DataFrame, config: AgentConfig) -> pd.DataFrame:
+    """Filter offers according to the minimum star rating."""
+
+    if config.min_star_rating is None or df.empty:
+        return df
+    return df[df["star_rating"].fillna(0) >= config.min_star_rating]
+
+
+def filter_by_recommendation(df: pd.DataFrame, config: AgentConfig) -> pd.DataFrame:
+    """Filter offers according to the minimum recommendation score."""
+
+    if config.min_recommendation_score is None or df.empty:
+        return df
+    return df[df["recommendation_score"].fillna(0) >= config.min_recommendation_score]
 
 
 def deduplicate_offers(df: pd.DataFrame) -> pd.DataFrame:
@@ -76,6 +98,8 @@ def prepare_offers(offers: Iterable[RawOffer], config: AgentConfig) -> List[Proc
     df = offers_to_dataframe(offers, config)
     df = deduplicate_offers(df)
     df = filter_by_budget(df, config)
+    df = filter_by_star_rating(df, config)
+    df = filter_by_recommendation(df, config)
     if not df.empty:
         df = df.dropna(subset=["price"])
         
@@ -92,6 +116,17 @@ def prepare_offers(offers: Iterable[RawOffer], config: AgentConfig) -> List[Proc
                 url=str(row["url"]),
                 nights=int(row.get("nights", 0) or 0),
                 board=str(row.get("board", "")),
+                star_rating=(
+                    float(row["star_rating"])
+                    if row.get("star_rating") is not None and not math.isnan(row["star_rating"])
+                    else None
+                ),
+                recommendation_score=(
+                    float(row["recommendation_score"])
+                    if row.get("recommendation_score") is not None
+                    and not math.isnan(row["recommendation_score"])
+                    else None
+                ),
             )
         )
     return processed

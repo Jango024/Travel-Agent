@@ -106,7 +106,7 @@ def summarise_offers(offers: List[ProcessedOffer]) -> Dict[str, float]:
         if offer.price is not None and not math.isnan(float(offer.price))
     ]
     
-        if not valid_prices:
+    if not valid_prices:
         return {"count": 0, "average_price": 0.0, "min_price": 0.0}
 
     count = len(valid_prices)
